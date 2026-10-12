@@ -17,8 +17,7 @@ iced = { version = "0.12", default-features = false, features = [
     "tokio",
     "svg",
     "image",
-    "advanced",
-    "smol_str"
+    "advanced"
 ] }
 
 # Async runtime for non-blocking I/O, network streams, and IPC
