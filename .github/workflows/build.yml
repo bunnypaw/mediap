@@ -27,10 +27,10 @@ jobs:
       - name: Install system dependencies (libmpv, Mesa, ALSA, Wayland/X11)
         run: |
           sudo apt-get update
+          # libmpv-dev provides headers and links to libmpv1 on Ubuntu 22.04
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             libmpv-dev \
-            libmpv2 \
             libasound2-dev \
             libudev-dev \
             libfontconfig1-dev \
@@ -54,8 +54,7 @@ jobs:
 
       - name: Compile Super Player (Linux Release)
         working-directory: super_player
-        run: |
-          cargo build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Package Linux Binary
         run: |
@@ -76,9 +75,14 @@ jobs:
   build-windows-x64:
     name: Windows x64 (NVDEC / D3D11)
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup MSVC developer tools
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -89,11 +93,35 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "C:\mpv-dev"
-          Invoke-WebRequest -Uri "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20240407-git-58a5f36.7z/download" -OutFile "C:\mpv-dev\mpv-dev.7z"
-          7z x "C:\mpv-dev\mpv-dev.7z" -o"C:\mpv-dev" -y
-          Write-Output "LIBMPV_SOURCE=C:\mpv-dev" >> $env:GITHUB_ENV
-          Write-Output "LIB=C:\mpv-dev;$env:LIB" >> $env:GITHUB_ENV
-          Write-Output "PATH=C:\mpv-dev;$env:PATH" >> $env:GITHUB_ENV
+          Write-Host "Fetching official Windows libmpv dev release from shinchiro/mpv-winbuild-cmake..."
+          
+          # Use pre-installed GitHub CLI on Windows runner with token to download real 7z (avoids SourceForge HTML redirect)
+          try {
+            gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-dev-x86_64-*.7z" --dir "C:\mpv-dev"
+          } catch {
+            Write-Host "GitHub CLI download failed, falling back to direct REST API asset download..."
+            $res = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+            $asset = $res.assets | Where-Object { $_.name -like "mpv-dev-x86_64-*.7z" } | Select-Object -First 1
+            curl.exe -L $asset.browser_download_url -o "C:\mpv-dev\mpv-dev.7z"
+          }
+
+          $archive = Get-ChildItem "C:\mpv-dev\*.7z" | Select-Object -First 1
+          if (-not $archive) {
+            throw "Failed to locate downloaded mpv-dev 7z archive in C:\mpv-dev"
+          }
+          Write-Host "Extracting archive: $($archive.FullName)..."
+          7z x $archive.FullName -o"C:\mpv-dev" -y
+
+          # Generate MSVC-compatible mpv.lib from mpv.def using Visual Studio lib.exe
+          if (Test-Path "C:\mpv-dev\mpv.def") {
+            Write-Host "Generating mpv.lib for MSVC linker..."
+            lib.exe /def:C:\mpv-dev\mpv.def /out:C:\mpv-dev\mpv.lib /machine:x64
+          }
+
+          # Configure environment paths for Cargo and MSVC linker
+          "LIBMPV_SOURCE=C:\mpv-dev" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIB=C:\mpv-dev;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=C:\mpv-dev;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -102,8 +130,7 @@ jobs:
 
       - name: Compile Super Player (Windows Release)
         working-directory: super_player
-        run: |
-          cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Bundle Windows Executable and Runtime DLLs
         shell: pwsh
@@ -132,11 +159,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r26b
-          add-to-path: true
+      - name: Detect and configure preinstalled Android NDK
+        run: |
+          # Detect preinstalled NDK on GitHub Actions ubuntu runner
+          NDK_VERSION=$(ls -1 /usr/local/lib/android/sdk/ndk | sort -V | tail -n 1)
+          if [ -z "$NDK_VERSION" ]; then
+            echo "Error: Android NDK not found in /usr/local/lib/android/sdk/ndk"
+            exit 1
+          fi
+          NDK_PATH="/usr/local/lib/android/sdk/ndk/$NDK_VERSION"
+          echo "Found Android NDK version $NDK_VERSION at $NDK_PATH"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
 
       - name: Install Rust stable & Android ARM64 target
         uses: dtolnay/rust-toolchain@stable
@@ -144,28 +179,16 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Install cargo-ndk tool
-        run: |
-          cargo install cargo-ndk
-
-      - name: Download Prebuilt libmpv for Android ARM64
-        run: |
-          mkdir -p /tmp/mpv-android
-          curl -L -o /tmp/mpv-android/mpv-android.tar.gz "https://github.com/mpv-android/mpv-android/releases/download/v2024-03-24/mpv-libs-arm64-v8a.tar.gz" || true
-          if [ -f /tmp/mpv-android/mpv-android.tar.gz ]; then
-            tar -xzf /tmp/mpv-android/mpv-android.tar.gz -C /tmp/mpv-android/ || true
-          fi
+        run: cargo install cargo-ndk
 
       - name: Compile Super Player with cargo-ndk (ARM64)
         working-directory: super_player
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        run: |
-          cargo ndk --target aarch64-linux-android --platform 28 build --release
+        run: cargo ndk --target aarch64-linux-android --platform 28 build --release
 
       - name: Package Android/Googlebook OS ARM64 Binary
         run: |
           mkdir -p dist-android
-          cp super_player/target/aarch64-linux-android/release/super_player dist-android/super_player-android-aarch64 || touch dist-android/super_player-android-aarch64
+          cp super_player/target/aarch64-linux-android/release/super_player dist-android/super_player-android-aarch64
           tar -czf super_player-android-arm64.tar.gz -C dist-android .
 
       - name: Upload Android/Googlebook OS Artifact
@@ -173,4 +196,4 @@ jobs:
         with:
           name: super_player-android-arm64
           path: super_player-android-arm64.tar.gz
-          if-no-files-found: warn
+          if-no-files-found: error

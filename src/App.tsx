@@ -296,6 +296,39 @@ pub struct SuperPlayerUi {
     pub is_fullscreen: bool,
 }`;
 
+const RUST_BUILD_RS = `//! Build script for super_player.
+//! Automatically coordinates native libmpv linking across Linux, Windows, and Android.
+
+fn main() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+
+    println!("cargo:rerun-if-env-changed=LIBMPV_SOURCE");
+    println!("cargo:rerun-if-env-changed=MPV_ANDROID_LIB_DIR");
+
+    match target_os.as_str() {
+        "windows" => {
+            let mpv_dir = std::env::var("LIBMPV_SOURCE").unwrap_or_else(|_| "C:\\\\mpv-dev".to_string());
+            println!("cargo:rustc-link-search=native={}", mpv_dir);
+            println!("cargo:rustc-link-lib=mpv");
+        }
+        "android" => {
+            if let Ok(dir) = std::env::var("MPV_ANDROID_LIB_DIR") {
+                println!("cargo:rustc-link-search=native={}", dir);
+            }
+            println!("cargo:rustc-link-lib=mpv");
+        }
+        "linux" => {
+            if let Err(err) = pkg_config::probe_library("mpv") {
+                println!("cargo:warning=pkg-config failed to locate mpv: {}. Using fallback link.", err);
+                println!("cargo:rustc-link-lib=mpv");
+            }
+        }
+        _ => {
+            println!("cargo:rustc-link-lib=mpv");
+        }
+    }
+}`;
+
 const GITHUB_WORKFLOW_YML = `name: Build & Release Super Player Matrix
 
 on:
@@ -312,6 +345,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # -------------------------------------------------------------
+  # 1. LINUX x64 (x86_64-unknown-linux-gnu)
+  # -------------------------------------------------------------
   build-linux-x64:
     name: Linux x64 (VAAPI & NVDEC)
     runs-on: ubuntu-22.04
@@ -322,52 +358,93 @@ jobs:
       - name: Install system dependencies (libmpv, Mesa, ALSA, Wayland/X11)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libmpv-dev libmpv2 libasound2-dev libudev-dev \
-            libfontconfig1-dev libx11-dev libgl1-mesa-dev libva-dev
+          # Use libmpv-dev on Ubuntu 22.04 (libmpv2 does not exist as package name)
+          sudo apt-get install -y --no-install-recommends \\
+            pkg-config libmpv-dev libasound2-dev libudev-dev \\
+            libfontconfig1-dev libx11-dev libxcursor-dev libxrandr-dev \\
+            libxi-dev libgl1-mesa-dev libva-dev libvdpau-dev
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
 
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: super_player
+
       - name: Compile Super Player (Linux Release)
         working-directory: super_player
         run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Package Linux Binary
+        run: |
+          mkdir -p dist-linux
+          cp super_player/target/x86_64-unknown-linux-gnu/release/super_player dist-linux/super_player-linux-x86_64
+          chmod +x dist-linux/super_player-linux-x86_64
 
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
           name: super_player-linux-x86_64
-          path: super_player/target/x86_64-unknown-linux-gnu/release/super_player
+          path: dist-linux/super_player-linux-x86_64
+          if-no-files-found: error
 
+  # -------------------------------------------------------------
+  # 2. WINDOWS x64 (x86_64-pc-windows-msvc)
+  # -------------------------------------------------------------
   build-windows-x64:
     name: Windows x64 (NVDEC / D3D11)
     runs-on: windows-latest
+    env:
+      GH_TOKEN: \${{ github.token }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup MSVC developer tools
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Setup Windows libmpv Dev Kit
+      - name: Download & Setup Windows libmpv Dev Kit
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "C:\\mpv-dev"
-          Invoke-WebRequest -Uri "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20240407-git-58a5f36.7z/download" -OutFile "C:\\mpv-dev\\mpv-dev.7z"
-          7z x "C:\\mpv-dev\\mpv-dev.7z" -o"C:\\mpv-dev" -y
-          Write-Output "LIBMPV_SOURCE=C:\\mpv-dev" >> $env:GITHUB_ENV
-          Write-Output "LIB=C:\\mpv-dev;$env:LIB" >> $env:GITHUB_ENV
-          Write-Output "PATH=C:\\mpv-dev;$env:PATH" >> $env:GITHUB_ENV
+          Write-Host "Fetching real 7z archive from shinchiro/mpv-winbuild-cmake GitHub releases..."
+          try {
+            gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-dev-x86_64-*.7z" --dir "C:\\mpv-dev"
+          } catch {
+            $res = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+            $asset = $res.assets | Where-Object { $_.name -like "mpv-dev-x86_64-*.7z" } | Select-Object -First 1
+            curl.exe -L $asset.browser_download_url -o "C:\\mpv-dev\\mpv-dev.7z"
+          }
+
+          $archive = Get-ChildItem "C:\\mpv-dev\\*.7z" | Select-Object -First 1
+          7z x $archive.FullName -o"C:\\mpv-dev" -y
+
+          if (Test-Path "C:\\mpv-dev\\mpv.def") {
+            lib.exe /def:C:\\mpv-dev\\mpv.def /out:C:\\mpv-dev\\mpv.lib /machine:x64
+          }
+
+          "LIBMPV_SOURCE=C:\\mpv-dev" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIB=C:\\mpv-dev;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=C:\\mpv-dev;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: super_player
 
       - name: Compile Super Player (Windows Release)
         working-directory: super_player
         run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Bundle Executable & DLLs
+      - name: Bundle Windows Executable and Runtime DLLs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "dist-windows"
@@ -382,7 +459,11 @@ jobs:
         with:
           name: super_player-windows-x86_64
           path: super_player-windows-x86_64.zip
+          if-no-files-found: error
 
+  # -------------------------------------------------------------
+  # 3. ANDROID / GOOGLEBOOK OS (ARM64) (aarch64-linux-android)
+  # -------------------------------------------------------------
   build-android-arm64:
     name: Android & Googlebook OS ARM64 (MediaCodec)
     runs-on: ubuntu-22.04
@@ -390,28 +471,39 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r26b
+      - name: Detect and configure preinstalled Android NDK
+        run: |
+          NDK_VERSION=$(ls -1 /usr/local/lib/android/sdk/ndk | sort -V | tail -n 1)
+          NDK_PATH="/usr/local/lib/android/sdk/ndk/$NDK_VERSION"
+          echo "Found Android NDK version $NDK_VERSION at $NDK_PATH"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
 
       - name: Install Rust stable & Android ARM64 target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      - name: Install cargo-ndk
+      - name: Install cargo-ndk tool
         run: cargo install cargo-ndk
 
-      - name: Compile Super Player with cargo-ndk
+      - name: Compile Super Player with cargo-ndk (ARM64)
         working-directory: super_player
         run: cargo ndk --target aarch64-linux-android --platform 28 build --release
+
+      - name: Package Android/Googlebook OS ARM64 Binary
+        run: |
+          mkdir -p dist-android
+          cp super_player/target/aarch64-linux-android/release/super_player dist-android/super_player-android-aarch64
+          tar -czf super_player-android-arm64.tar.gz -C dist-android .
 
       - name: Upload Android/Googlebook OS Artifact
         uses: actions/upload-artifact@v4
         with:
           name: super_player-android-arm64
-          path: super_player/target/aarch64-linux-android/release/super_player`;
+          path: super_player-android-arm64.tar.gz
+          if-no-files-found: error`;
 
 interface Track {
   id: string;
@@ -484,7 +576,7 @@ export default function App() {
   const [isBuffering, setIsBuffering] = useState(false);
 
   // Code Explorer State
-  const [selectedCodeFile, setSelectedCodeFile] = useState<'Cargo.toml' | 'player.rs' | 'ui.rs' | 'build.yml'>('Cargo.toml');
+  const [selectedCodeFile, setSelectedCodeFile] = useState<'Cargo.toml' | 'build.rs' | 'player.rs' | 'ui.rs' | 'build.yml'>('Cargo.toml');
   const [copiedCode, setCopiedCode] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
 
@@ -572,6 +664,7 @@ export default function App() {
       const rustFolder = zip.folder('super_player');
       if (rustFolder) {
         rustFolder.file('Cargo.toml', RUST_CARGO_TOML);
+        rustFolder.file('build.rs', RUST_BUILD_RS);
         rustFolder.file('README.md', `# Super Player\nPure native Rust media player bound to libmpv.`);
         const srcFolder = rustFolder.folder('src');
         if (srcFolder) {
@@ -603,26 +696,25 @@ export default function App() {
     setCloudBuildStep('running');
     setSimulatedLogs([
       'Initiating GitHub Actions Matrix compilation on push [main]...',
-      'Runner 1: [Linux x64] Provisioning ubuntu-22.04 runner...',
-      'Runner 2: [Windows x64] Provisioning windows-latest runner...',
-      'Runner 3: [Android ARM64] Provisioning ubuntu-22.04 + Android NDK r26b...',
+      'Runner 1 [Linux x64]: apt-get install -y libmpv-dev pkg-config (libmpv2 package error resolved)',
+      'Runner 2 [Windows x64]: gh release download shinchiro/mpv-winbuild-cmake + lib.exe /def:mpv.def',
+      'Runner 3 [Android ARM64]: Detected preinstalled NDK at /usr/local/lib/android/sdk/ndk/27.x',
     ]);
 
     setTimeout(() => {
       setSimulatedLogs(prev => [
         ...prev,
-        'apt-get install -y libmpv-dev pkg-config libasound2-dev libgl1-mesa-dev',
-        'Rust toolchain dtolnay/rust-toolchain@stable installed (x86_64-unknown-linux-gnu)',
-        'cargo build --release --target x86_64-unknown-linux-gnu [Optimizing with thin LTO]',
+        '✓ [Linux] libmpv-dev installed cleanly, invoking cargo build --release --target x86_64-unknown-linux-gnu',
+        '✓ [Windows] Extracted real 7z archive, generated mpv.lib with MSVC lib.exe, linking against C:\\mpv-dev',
+        '✓ [Android] Exported ANDROID_NDK_HOME, running cargo ndk --target aarch64-linux-android --platform 28 build',
       ]);
     }, 1200);
 
     setTimeout(() => {
       setSimulatedLogs(prev => [
         ...prev,
-        'Windows runner: Unpacking libmpv dev kit and linking mpv-2.lib...',
-        'Android runner: cargo ndk --target aarch64-linux-android --platform 28 build --release',
-        'Linking native libmpv hardware decoders (NVDEC, VAAPI, MediaCodec)...',
+        'Compiling super_player with thin LTO and hardware acceleration pipelines...',
+        'Linking native libmpv hardware decoders: NVDEC (Windows), VAAPI (Linux), MediaCodec (Android)...',
       ]);
     }, 2400);
 
@@ -631,8 +723,8 @@ export default function App() {
         ...prev,
         '✓ Compiled super_player-linux-x86_64 (14.2 MB ELF binary)',
         '✓ Packaged super_player-windows-x86_64.zip (super_player.exe + mpv-2.dll)',
-        '✓ Packaged super_player-android-arm64.tar.gz (ARM64 NDK binary)',
-        '🚀 Release artifacts uploaded to actions/upload-artifact@v4 successfully!',
+        '✓ Packaged super_player-android-arm64.tar.gz (aarch64 NDK binary)',
+        '🚀 All 3 matrix jobs succeeded! Release artifacts uploaded to GitHub Actions.',
       ]);
       setCloudBuildStep('success');
     }, 3600);
@@ -1240,6 +1332,40 @@ export default function App() {
               </p>
             </div>
 
+            {/* CI Runner Failure Diagnostics & Resolutions */}
+            <div className={`p-5 rounded-2xl border ${isDarkMode ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-300 bg-amber-50/70'}`}>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 font-bold text-xs shrink-0 mt-0.5">
+                  CI FIX
+                </div>
+                <div className="space-y-2 text-xs flex-1">
+                  <h4 className="font-bold text-sm text-amber-500">
+                    GitHub Actions Matrix Build Fixes Applied
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                    <div className={`p-3 rounded-xl border ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white'}`}>
+                      <div className="font-semibold text-emerald-400">1. Linux: Removed invalid libmpv2</div>
+                      <p className="text-slate-400 mt-1">
+                        Ubuntu 22.04 does not have a package called <code className="text-rose-400">libmpv2</code> (caused exit code 100). The official header package is strictly <code className="text-emerald-400">libmpv-dev</code>, which is now fixed.
+                      </p>
+                    </div>
+                    <div className={`p-3 rounded-xl border ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white'}`}>
+                      <div className="font-semibold text-emerald-400">2. Windows: Direct 7z & mpv.lib</div>
+                      <p className="text-slate-400 mt-1">
+                        SourceForge served an HTML landing page (113 KiB "Cannot open as 7z"). Now downloads directly from <code className="text-emerald-400">shinchiro/mpv-winbuild-cmake</code> releases and generates <code className="text-emerald-400">mpv.lib</code> via MSVC <code className="text-slate-300">lib.exe /def</code>.
+                      </p>
+                    </div>
+                    <div className={`p-3 rounded-xl border ${isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-white'}`}>
+                      <div className="font-semibold text-emerald-400">3. Android: Runner NDK Auto-Detect</div>
+                      <p className="text-slate-400 mt-1">
+                        Fixed <code className="text-rose-400">ANDROID_NDK_HOME=""</code> empty path crash. Workflow now auto-detects GitHub's preinstalled NDK at <code className="text-emerald-400">/usr/local/lib/android/sdk/ndk/27.x</code>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Target Matrix Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               
@@ -1404,6 +1530,8 @@ export default function App() {
                   onClick={() => {
                     const content = selectedCodeFile === 'Cargo.toml'
                       ? RUST_CARGO_TOML
+                      : selectedCodeFile === 'build.rs'
+                      ? RUST_BUILD_RS
                       : selectedCodeFile === 'player.rs'
                       ? RUST_PLAYER_RS
                       : selectedCodeFile === 'ui.rs'
@@ -1436,6 +1564,19 @@ export default function App() {
                 }`}
               >
                 Cargo.toml
+              </button>
+
+              <button
+                onClick={() => setSelectedCodeFile('build.rs')}
+                className={`px-3 py-1.5 text-xs font-mono rounded-lg border transition ${
+                  selectedCodeFile === 'build.rs'
+                    ? 'border-orange-500 bg-orange-500/10 text-orange-400 font-semibold'
+                    : isDarkMode
+                    ? 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200'
+                    : 'border-slate-200 bg-white text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                build.rs (Cross Linker)
               </button>
 
               <button
@@ -1485,6 +1626,7 @@ export default function App() {
               <pre className="text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed max-h-[580px] p-1">
                 <code>
                   {selectedCodeFile === 'Cargo.toml' && RUST_CARGO_TOML}
+                  {selectedCodeFile === 'build.rs' && RUST_BUILD_RS}
                   {selectedCodeFile === 'player.rs' && RUST_PLAYER_RS}
                   {selectedCodeFile === 'ui.rs' && RUST_UI_RS}
                   {selectedCodeFile === 'build.yml' && GITHUB_WORKFLOW_YML}

@@ -97,6 +97,16 @@
         </div>
       </div>
 
+      <!-- Runner Fixes Indicator -->
+      <div class="p-4 rounded-xl border border-orange-500/30 bg-orange-500/10 text-xs space-y-2">
+        <div class="font-bold text-orange-400">GitHub Actions Matrix Build Fixes Applied:</div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-slate-300">
+          <div><strong class="text-white">1. Linux:</strong> Replaced invalid <code class="text-rose-400">libmpv2</code> with <code class="text-emerald-400">libmpv-dev</code>.</div>
+          <div><strong class="text-white">2. Windows:</strong> Direct 7z from shinchiro GitHub releases + MSVC <code class="text-emerald-400">lib.exe /def</code>.</div>
+          <div><strong class="text-white">3. Android:</strong> Detects pre-installed runner NDK (fixes <code class="text-rose-400">ANDROID_NDK_HOME=""</code>).</div>
+        </div>
+      </div>
+
       <!-- Matrix Cards -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <!-- Linux Target -->
