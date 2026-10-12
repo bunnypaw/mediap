@@ -1,0 +1,56 @@
+[package]
+name = "super_player"
+version = "0.1.0"
+edition = "2021"
+authors = ["Super Player Team <team@superplayer.app>"]
+description = "High-performance native cross-platform media player in pure Rust with libmpv hardware acceleration"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+# libmpv C API bindings for hardware-accelerated video decoding (NVDEC, VAAPI, MediaCodec)
+libmpv2 = { version = "4.0", features = ["render"] }
+
+# Modern cross-platform GUI framework
+iced = { version = "0.12", default-features = false, features = [
+    "wgpu",
+    "tokio",
+    "svg",
+    "image",
+    "advanced",
+    "smol_str"
+] }
+
+# Async runtime for non-blocking I/O, network streams, and IPC
+tokio = { version = "1.38", features = ["full"] }
+
+# HTTP client for network streaming (HLS, DASH, direct MP4/MKV streams)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization for playlist states, config persistence, and Gemini API payloads
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Native file dialogs for opening media and playlists
+rfd = "0.14"
+
+# Structured logging and diagnostics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# System paths for config and playlist storage
+dirs = "5.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

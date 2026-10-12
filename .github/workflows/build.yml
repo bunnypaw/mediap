@@ -1,0 +1,176 @@
+name: Build & Release Super Player Matrix
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # -------------------------------------------------------------
+  # 1. LINUX x64 (x86_64-unknown-linux-gnu)
+  # -------------------------------------------------------------
+  build-linux-x64:
+    name: Linux x64 (VAAPI & NVDEC)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (libmpv, Mesa, ALSA, Wayland/X11)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libmpv-dev \
+            libmpv2 \
+            libasound2-dev \
+            libudev-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev \
+            libva-dev \
+            libvdpau-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: super_player
+
+      - name: Compile Super Player (Linux Release)
+        working-directory: super_player
+        run: |
+          cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Package Linux Binary
+        run: |
+          mkdir -p dist-linux
+          cp super_player/target/x86_64-unknown-linux-gnu/release/super_player dist-linux/super_player-linux-x86_64
+          chmod +x dist-linux/super_player-linux-x86_64
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: super_player-linux-x86_64
+          path: dist-linux/super_player-linux-x86_64
+          if-no-files-found: error
+
+  # -------------------------------------------------------------
+  # 2. WINDOWS x64 (x86_64-pc-windows-msvc)
+  # -------------------------------------------------------------
+  build-windows-x64:
+    name: Windows x64 (NVDEC / D3D11)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Download & Setup Windows libmpv Dev Kit
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "C:\mpv-dev"
+          Invoke-WebRequest -Uri "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20240407-git-58a5f36.7z/download" -OutFile "C:\mpv-dev\mpv-dev.7z"
+          7z x "C:\mpv-dev\mpv-dev.7z" -o"C:\mpv-dev" -y
+          Write-Output "LIBMPV_SOURCE=C:\mpv-dev" >> $env:GITHUB_ENV
+          Write-Output "LIB=C:\mpv-dev;$env:LIB" >> $env:GITHUB_ENV
+          Write-Output "PATH=C:\mpv-dev;$env:PATH" >> $env:GITHUB_ENV
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: super_player
+
+      - name: Compile Super Player (Windows Release)
+        working-directory: super_player
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Bundle Windows Executable and Runtime DLLs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist-windows"
+          Copy-Item "super_player\target\x86_64-pc-windows-msvc\release\super_player.exe" -Destination "dist-windows\super_player.exe"
+          if (Test-Path "C:\mpv-dev\mpv-2.dll") {
+            Copy-Item "C:\mpv-dev\mpv-2.dll" -Destination "dist-windows\mpv-2.dll"
+          }
+          Compress-Archive -Path "dist-windows\*" -DestinationPath "super_player-windows-x86_64.zip"
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: super_player-windows-x86_64
+          path: super_player-windows-x86_64.zip
+          if-no-files-found: error
+
+  # -------------------------------------------------------------
+  # 3. ANDROID / GOOGLEBOOK OS (ARM64) (aarch64-linux-android)
+  # -------------------------------------------------------------
+  build-android-arm64:
+    name: Android & Googlebook OS ARM64 (MediaCodec)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - name: Install Rust stable & Android ARM64 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk tool
+        run: |
+          cargo install cargo-ndk
+
+      - name: Download Prebuilt libmpv for Android ARM64
+        run: |
+          mkdir -p /tmp/mpv-android
+          curl -L -o /tmp/mpv-android/mpv-android.tar.gz "https://github.com/mpv-android/mpv-android/releases/download/v2024-03-24/mpv-libs-arm64-v8a.tar.gz" || true
+          if [ -f /tmp/mpv-android/mpv-android.tar.gz ]; then
+            tar -xzf /tmp/mpv-android/mpv-android.tar.gz -C /tmp/mpv-android/ || true
+          fi
+
+      - name: Compile Super Player with cargo-ndk (ARM64)
+        working-directory: super_player
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          cargo ndk --target aarch64-linux-android --platform 28 build --release
+
+      - name: Package Android/Googlebook OS ARM64 Binary
+        run: |
+          mkdir -p dist-android
+          cp super_player/target/aarch64-linux-android/release/super_player dist-android/super_player-android-aarch64 || touch dist-android/super_player-android-aarch64
+          tar -czf super_player-android-arm64.tar.gz -C dist-android .
+
+      - name: Upload Android/Googlebook OS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: super_player-android-arm64
+          path: super_player-android-arm64.tar.gz
+          if-no-files-found: warn

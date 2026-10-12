@@ -1,0 +1,6 @@
+{
+  "name": "Super Player - Native Rust Media Player & Cloud Build Hub",
+  "description": "Native cross-platform media player written in pure Rust linked with libmpv (NVDEC/VAAPI/MediaCodec hardware acceleration), featuring GitHub Actions cloud compilation matrix and VLC-inspired UI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

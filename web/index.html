@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Player - Web Hub & Cloud Release Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#fff7ed',
+              100: '#ffedd5',
+              500: '#ff7700',
+              600: '#ea580c',
+              700: '#c2410c',
+            }
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+    code, pre { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-orange-500/30 selection:text-orange-200">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center font-bold text-white shadow-md shadow-orange-600/30">
+          ▶
+        </div>
+        <div>
+          <span class="font-bold text-base tracking-tight text-white">SUPER PLAYER</span>
+          <span class="hidden sm:inline text-xs text-slate-400 ml-2">Pure Rust · libmpv Hardware Decoded</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 text-sm">
+        <a href="#build-matrix" class="text-slate-400 hover:text-white transition-colors">Builds</a>
+        <a href="#releases" class="text-slate-400 hover:text-white transition-colors">Downloads</a>
+        <a href="#ai-assistant" class="text-slate-400 hover:text-white transition-colors">Gemini AI</a>
+        <button id="themeToggle" class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-xs hover:border-slate-600 transition-colors">
+          Theme
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-6xl mx-auto px-6 py-10 flex-1 w-full space-y-12">
+
+    <!-- Hero Section -->
+    <section class="text-center max-w-3xl mx-auto space-y-4">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-orange-500/30 bg-orange-500/10 text-orange-400 text-xs font-mono">
+        <span>Zero Local Compilation</span>
+        <span>·</span>
+        <span>GitHub Actions Matrix CI</span>
+      </div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white">
+        High-Performance Native Media Player
+      </h1>
+      <p class="text-slate-400 text-sm sm:text-base leading-relaxed">
+        Engineered in 100% pure Rust and bound directly to the system <code class="text-orange-400">libmpv</code> C API.
+        Hardware-accelerated via NVDEC, VAAPI, and MediaCodec. No Electron, no webviews, zero runtime bloat.
+      </p>
+    </section>
+
+    <!-- GitHub Actions Cloud Build Progress Tracker -->
+    <section id="build-matrix" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <span>Cloud Compiler Matrix</span>
+            <span class="text-xs font-mono font-normal text-slate-500">.github/workflows/build.yml</span>
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">
+            Automated matrix pipeline triggers on <code class="text-slate-300">push: main</code> and builds native artifacts in GitHub's cloud runners.
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="text-xs font-mono text-emerald-400">CI Pipeline Ready</span>
+        </div>
+      </div>
+
+      <!-- Matrix Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- Linux Target -->
+        <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-sm text-white">Linux x64</span>
+            <span class="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+              Ready
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 font-mono">x86_64-unknown-linux-gnu</p>
+          <div class="text-xs text-slate-500 space-y-1">
+            <p>• Dependencies: <code class="text-slate-400">libmpv-dev</code>, Mesa, ALSA</p>
+            <p>• Acceleration: VAAPI, NVDEC, Vulkan</p>
+            <p>• Output: <code class="text-orange-400">super_player-linux-x86_64</code></p>
+          </div>
+        </div>
+
+        <!-- Windows Target -->
+        <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-sm text-white">Windows x64</span>
+            <span class="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+              Ready
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 font-mono">x86_64-pc-windows-msvc</p>
+          <div class="text-xs text-slate-500 space-y-1">
+            <p>• Dependencies: libmpv dev kit, D3D11</p>
+            <p>• Acceleration: NVDEC, Direct3D11, Vulkan</p>
+            <p>• Output: <code class="text-orange-400">super_player-windows-x86_64.zip</code></p>
+          </div>
+        </div>
+
+        <!-- Android Target -->
+        <div class="border border-slate-800 bg-slate-950/60 rounded-xl p-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-sm text-white">Android / ChromeOS</span>
+            <span class="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+              Ready
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 font-mono">aarch64-linux-android</p>
+          <div class="text-xs text-slate-500 space-y-1">
+            <p>• Dependencies: Android NDK r26b, cargo-ndk</p>
+            <p>• Acceleration: MediaCodec, OpenGLES</p>
+            <p>• Output: <code class="text-orange-400">super_player-android-arm64.tar.gz</code></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Release Downloads Section -->
+    <section id="releases" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-white">Compiled Release Binaries</h2>
+          <p class="text-xs text-slate-400 mt-1">
+            Download the native binaries directly once compiled by your GitHub Actions runner.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <a href="https://github.com/my-user/super_player/actions" target="_blank" rel="noopener noreferrer"
+           class="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-orange-500/50 hover:bg-slate-800/60 transition group">
+          <div>
+            <div class="text-sm font-semibold text-white group-hover:text-orange-400 transition-colors">Download Linux x64</div>
+            <div class="text-xs text-slate-500">Binary (.elf / executable)</div>
+          </div>
+          <span class="text-slate-400 group-hover:text-orange-400 transition-colors">⬇</span>
+        </a>
+
+        <a href="https://github.com/my-user/super_player/actions" target="_blank" rel="noopener noreferrer"
+           class="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-orange-500/50 hover:bg-slate-800/60 transition group">
+          <div>
+            <div class="text-sm font-semibold text-white group-hover:text-orange-400 transition-colors">Download Windows x64</div>
+            <div class="text-xs text-slate-500">Zip (.exe + mpv-2.dll)</div>
+          </div>
+          <span class="text-slate-400 group-hover:text-orange-400 transition-colors">⬇</span>
+        </a>
+
+        <a href="https://github.com/my-user/super_player/actions" target="_blank" rel="noopener noreferrer"
+           class="flex items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-950/60 hover:border-orange-500/50 hover:bg-slate-800/60 transition group">
+          <div>
+            <div class="text-sm font-semibold text-white group-hover:text-orange-400 transition-colors">Download Android ARM64</div>
+            <div class="text-xs text-slate-500">Tarball (.tar.gz)</div>
+          </div>
+          <span class="text-slate-400 group-hover:text-orange-400 transition-colors">⬇</span>
+        </a>
+      </div>
+    </section>
+
+    <!-- Gemini AI Playlist Assistant & Media Q&A -->
+    <section id="ai-assistant" class="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
+      <div>
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <span>Gemini Media & Playlist Assistant</span>
+          <span class="text-xs font-mono px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20">
+            gemini-3.8-flash
+          </span>
+        </h2>
+        <p class="text-xs text-slate-400 mt-1">
+          Paste your media tracks, M3U playlists, or ask technical decoding questions regarding libmpv and hardware acceleration.
+        </p>
+      </div>
+
+      <div class="space-y-4">
+        <!-- API Key Input -->
+        <div class="space-y-1">
+          <label class="text-xs text-slate-400">Gemini API Key</label>
+          <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key (optional if using server env)"
+                 class="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-orange-500 focus:outline-none text-slate-200" />
+        </div>
+
+        <!-- Prompt Textarea -->
+        <div class="space-y-1">
+          <label class="text-xs text-slate-400">Playlist Content or Video Questions</label>
+          <textarea id="promptInput" rows="4" placeholder="Example: Summarize this media playlist and suggest optimal mpv hardware decoding flags for high bitrate 4K 60fps HEVC:&#10;1. Big Buck Bunny (4K 60fps HEVC)&#10;2. Tears of Steel (1080p AVC)&#10;3. Sintel (4K AV1)"
+                    class="w-full px-3 py-2 text-xs rounded-lg bg-slate-950 border border-slate-800 focus:border-orange-500 focus:outline-none text-slate-200"></textarea>
+        </div>
+
+        <!-- Action Button -->
+        <div class="flex items-center justify-between">
+          <div class="flex gap-2">
+            <button onclick="setExamplePrompt(1)" class="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800">
+              Summarize Playlist
+            </button>
+            <button onclick="setExamplePrompt(2)" class="text-[11px] text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800">
+              Suggest mpv Flags
+            </button>
+          </div>
+          <button id="askGeminiBtn" onclick="queryGemini()"
+                  class="px-5 py-2 text-xs font-semibold rounded-lg bg-orange-600 hover:bg-orange-500 text-white transition shadow-md shadow-orange-600/30">
+            Analyze with Gemini
+          </button>
+        </div>
+
+        <!-- Output Box -->
+        <div id="aiResponseBox" class="hidden mt-4 p-4 rounded-xl border border-slate-800 bg-slate-950/80 text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
+    <p>Super Player · Pure Rust Desktop & Mobile Architecture · Powered by libmpv C API</p>
+  </footer>
+
+  <script>
+    // Quick prompt buttons
+    function setExamplePrompt(type) {
+      const input = document.getElementById('promptInput');
+      if (type === 1) {
+        input.value = "Here is my media queue:\n1. Cosmos 4K UltraHD Demo (HEVC 60fps)\n2. Tears of Steel (1080p H.264)\n3. Sintel Durian (AV1 Opus)\nPlease summarize the genres, total playback scope, and give viewing notes.";
+      } else {
+        input.value = "What are the recommended libmpv configuration options for low-latency 4K video playback with NVDEC and VAAPI hardware acceleration in Rust?";
+      }
+    }
+
+    async function queryGemini() {
+      const apiKey = document.getElementById('geminiApiKey').value.trim();
+      const prompt = document.getElementById('promptInput').value.trim();
+      const responseBox = document.getElementById('aiResponseBox');
+      const btn = document.getElementById('askGeminiBtn');
+
+      if (!prompt) {
+        alert("Please enter a playlist or question.");
+        return;
+      }
+
+      responseBox.classList.remove('hidden');
+      responseBox.innerText = "Analyzing with Gemini (gemini-3.8-flash)...";
+      btn.disabled = true;
+      btn.innerText = "Processing...";
+
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }]
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error?.message || "Failed to reach Gemini API");
+        }
+
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
+        responseBox.innerText = text;
+      } catch (err) {
+        responseBox.innerText = "Error: " + err.message + "\n\nTip: You can get a free Gemini API key from Google AI Studio.";
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "Analyze with Gemini";
+      }
+    }
+
+    // Simple Theme Toggle
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+    });
+  </script>
+</body>
+</html>
