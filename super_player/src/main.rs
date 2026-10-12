@@ -187,7 +187,7 @@ impl Application for SuperPlayerApp {
                     } else {
                         window::Mode::Windowed
                     };
-                    window::change_mode(window::Id::MAIN, mode)
+                    window::set_mode(window::Id::MAIN, mode)
                 }
                 UiMessage::CycleSpeed => {
                     let next_speed = match self.cached_state.speed {

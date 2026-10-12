@@ -2,11 +2,11 @@
 //! Supports NVDEC (NVIDIA), VAAPI (Intel/AMD Linux), and MediaCodec (Android ARM64).
 
 use anyhow::{Context, Result};
-use libmpv2::{events::Event, FileState, Format, Mpv};
+use libmpv2::Mpv;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::{info};
 
 /// Target hardware acceleration decoding backend
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -103,34 +103,30 @@ impl MpvPlayer {
     pub fn new(hwdec: HwDecMode) -> Result<Self> {
         info!("Initializing native libmpv context with hwdec={:?}", hwdec);
 
-        let mut mpv = Mpv::new().context("Failed to allocate native mpv_handle")?;
+        // Pre-configure properties during initialization
+        let mut mpv = Mpv::with_initializer(|init| {
+            init.set_property("hwdec", hwdec.as_mpv_str())?;
+            init.set_property("vo", "gpu-next")?;
+            init.set_property("gpu-context", "auto")?;
+            init.set_property("hwdec-codecs", "all")?;
+            init.set_property("keep-open", "yes")?;
+            init.set_property("hr-seek", "yes")?;
+            init.set_property("force-seekable", "yes")?;
+            init.set_property("ytdl", "yes")?;
+            init.set_property("cache", "yes")?;
+            init.set_property("demuxer-max-bytes", "150MiB")?;
+            init.set_property("volume-max", 150.0)?;
+            Ok(())
+        })
+        .context("Failed to allocate native mpv_handle")?;
 
-        // 1. Hardware acceleration configuration
-        mpv.set_property("hwdec", hwdec.as_mpv_str())
-            .context("Failed to set hwdec property")?;
-
-        // 2. High-performance rendering pipeline configuration
-        // vo=gpu-next provides modern Vulkan/OpenGL/D3D11 rendering
-        let _ = mpv.set_property("vo", "gpu-next");
-        let _ = mpv.set_property("gpu-context", "auto");
-        let _ = mpv.set_property("hwdec-codecs", "all");
-
-        // 3. Audio & Playback resilience
-        let _ = mpv.set_property("keep-open", "yes");
-        let _ = mpv.set_property("hr-seek", "yes");
-        let _ = mpv.set_property("force-seekable", "yes");
-        let _ = mpv.set_property("ytdl", "yes");
-        let _ = mpv.set_property("cache", "yes");
-        let _ = mpv.set_property("demuxer-max-bytes", "150MiB");
-        let _ = mpv.set_property("volume-max", 150.0);
-
-        // 4. Observe properties for UI synchronization
-        mpv.observe_property("time-pos", Format::Double, 1)?;
-        mpv.observe_property("duration", Format::Double, 2)?;
-        mpv.observe_property("pause", Format::Flag, 3)?;
-        mpv.observe_property("media-title", Format::String, 4)?;
-        mpv.observe_property("hwdec-current", Format::String, 5)?;
-        mpv.observe_property("video-codec", Format::String, 6)?;
+        // Observe telemetry properties
+        let _ = mpv.observe_property::<f64>("time-pos", 1);
+        let _ = mpv.observe_property::<f64>("duration", 2);
+        let _ = mpv.observe_property::<bool>("pause", 3);
+        let _ = mpv.observe_property::<String>("media-title", 4);
+        let _ = mpv.observe_property::<String>("hwdec-current", 5);
+        let _ = mpv.observe_property::<String>("video-codec", 6);
 
         let mpv_arc = Arc::new(Mutex::new(mpv));
         let is_shutting_down = Arc::new(AtomicBool::new(false));
@@ -142,28 +138,27 @@ impl MpvPlayer {
         })
     }
 
-    /// Load a local file or network stream (HLS / DASH / MP4)
+    /// Load a local file or network stream
     pub fn load_file(&self, path_or_url: &str) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         info!("Loading media into libmpv: {}", path_or_url);
-        mpv.command(&["loadfile", path_or_url, "replace"])
+        mpv.command("loadfile", &[path_or_url, "replace"])
             .context("Failed to execute mpv loadfile command")?;
-        // Start playing immediately on load
         let _ = mpv.set_property("pause", false);
         Ok(())
     }
 
     /// Append a file to the playback queue
     pub fn append_to_playlist(&self, path_or_url: &str) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
-        mpv.command(&["loadfile", path_or_url, "append"])
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        mpv.command("loadfile", &[path_or_url, "append"])
             .context("Failed to append file to playlist")?;
         Ok(())
     }
 
     /// Toggle play / pause state
     pub fn toggle_pause(&self) -> Result<bool> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         let is_paused: bool = mpv.get_property("pause").unwrap_or(false);
         let next_state = !is_paused;
         mpv.set_property("pause", next_state)?;
@@ -171,34 +166,36 @@ impl MpvPlayer {
     }
 
     pub fn play(&self) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         mpv.set_property("pause", false)?;
         Ok(())
     }
 
     pub fn pause(&self) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         mpv.set_property("pause", true)?;
         Ok(())
     }
 
     /// Relative seek in seconds (+10s or -10s)
     pub fn seek_relative(&self, seconds: f64) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
-        mpv.command(&["seek", &seconds.to_string(), "relative+exact"])?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let sec_str = seconds.to_string();
+        mpv.command("seek", &[&sec_str, "relative+exact"])?;
         Ok(())
     }
 
     /// Absolute seek to a specific second in the media
     pub fn seek_absolute(&self, seconds: f64) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
-        mpv.command(&["seek", &seconds.to_string(), "absolute+exact"])?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let sec_str = seconds.to_string();
+        mpv.command("seek", &[&sec_str, "absolute+exact"])?;
         Ok(())
     }
 
     /// Set volume (0.0 to 100.0, or up to 150.0 boost)
     pub fn set_volume(&self, volume: f64) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         let clamped = volume.clamp(0.0, 150.0);
         mpv.set_property("volume", clamped)?;
         Ok(())
@@ -206,16 +203,16 @@ impl MpvPlayer {
 
     /// Toggle mute
     pub fn toggle_mute(&self) -> Result<bool> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         let is_muted: bool = mpv.get_property("mute").unwrap_or(false);
         let next = !is_muted;
         mpv.set_property("mute", next)?;
         Ok(next)
     }
 
-    /// Change playback speed (e.g., 0.5x, 1.0x, 1.25x, 1.5x, 2.0x)
+    /// Change playback speed
     pub fn set_speed(&self, speed: f64) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         let clamped = speed.clamp(0.25, 4.0);
         mpv.set_property("speed", clamped)?;
         Ok(())
@@ -223,7 +220,7 @@ impl MpvPlayer {
 
     /// Switch hardware acceleration mode at runtime
     pub fn set_hwdec(&mut self, mode: HwDecMode) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
         self.hwdec_mode = mode;
         mpv.set_property("hwdec", mode.as_mpv_str())?;
         info!("Updated hardware decoder to: {}", mode.label());
@@ -232,15 +229,15 @@ impl MpvPlayer {
 
     /// Cycle subtitle track
     pub fn cycle_subtitles(&self) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
-        mpv.command(&["cycle", "sub"])?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        mpv.command("cycle", &["sub"])?;
         Ok(())
     }
 
     /// Cycle audio track
     pub fn cycle_audio(&self) -> Result<()> {
-        let mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
-        mpv.command(&["cycle", "audio"])?;
+        let mut mpv = self.mpv.lock().map_err(|_| anyhow::anyhow!("Mutex poisoned"))?;
+        mpv.command("cycle", &["audio"])?;
         Ok(())
     }
 
@@ -289,8 +286,8 @@ impl MpvPlayer {
     /// Graceful shutdown
     pub fn shutdown(&self) {
         self.is_shutting_down.store(true, Ordering::SeqCst);
-        if let Ok(mpv) = self.mpv.lock() {
-            let _ = mpv.command(&["quit"]);
+        if let Ok(mut mpv) = self.mpv.lock() {
+            let _ = mpv.command("quit", &[]);
         }
     }
 }

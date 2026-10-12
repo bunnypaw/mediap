@@ -9,7 +9,7 @@ readme = "README.md"
 
 [dependencies]
 # libmpv C API bindings for hardware-accelerated video decoding (NVDEC, VAAPI, MediaCodec)
-libmpv2 = { version = "4.0", features = ["render"] }
+libmpv2 = { version = "6.0", features = ["render"] }
 
 # Modern cross-platform GUI framework
 iced = { version = "0.12", default-features = false, features = [

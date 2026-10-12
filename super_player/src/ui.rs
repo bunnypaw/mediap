@@ -7,7 +7,7 @@ use crate::theme::{Palette, ThemeMode};
 use iced::widget::{
     button, column, container, horizontal_space, row, slider, text, text_input, vertical_space,
 };
-use iced::{Alignment, Command, Element, Length};
+use iced::{Alignment, Color, Command, Element, Length};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +87,49 @@ impl Default for SuperPlayerUi {
     }
 }
 
+// Custom container styling implementation for iced 0.12
+struct CustomBoxStyle {
+    bg: Color,
+    border_color: Color,
+    border_width: f32,
+    radius: f32,
+    shadow: bool,
+}
+
+impl container::StyleSheet for CustomBoxStyle {
+    type Style = iced::Theme;
+    fn appearance(&self, _theme: &Self::Style) -> container::Appearance {
+        container::Appearance {
+            background: Some(self.bg.into()),
+            border: iced::Border {
+                color: self.border_color,
+                width: self.border_width,
+                radius: self.radius.into(),
+            },
+            shadow: if self.shadow {
+                iced::Shadow {
+                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.35 },
+                    offset: iced::Vector::new(0.0, 4.0),
+                    blur_radius: 16.0,
+                }
+            } else {
+                iced::Shadow::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
+fn box_style(bg: Color, border_color: Color, border_width: f32, radius: f32, shadow: bool) -> iced::theme::Container {
+    iced::theme::Container::Custom(Box::new(CustomBoxStyle {
+        bg,
+        border_color,
+        border_width,
+        radius,
+        shadow,
+    }))
+}
+
 impl SuperPlayerUi {
     pub fn new() -> Self {
         Self::default()
@@ -138,11 +181,7 @@ impl SuperPlayerUi {
         container(full_layout)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_| container::Appearance {
-                background: Some(palette.background.into()),
-                text_color: Some(palette.text_primary),
-                ..Default::default()
-            })
+            .style(box_style(palette.background, Color::TRANSPARENT, 0.0, 0.0, false))
             .into()
     }
 
@@ -174,16 +213,7 @@ impl SuperPlayerUi {
             // Hardware Decoder Status Indicator
             container(text(hwdec_badge).size(11))
                 .padding([4, 10])
-                .style(move |_| container::Appearance {
-                    background: Some(palette.accent_subtle.into()),
-                    border: iced::Border {
-                        color: palette.accent,
-                        width: 1.0,
-                        radius: 6.0.into(),
-                    },
-                    text_color: Some(palette.accent),
-                    ..Default::default()
-                }),
+                .style(box_style(palette.accent_subtle, palette.accent, 1.0, 6.0, false)),
 
             // Theme Toggle
             button(text(theme_label).size(12))
@@ -222,15 +252,7 @@ impl SuperPlayerUi {
         container(hud_overlay)
             .width(Length::Fill)
             .height(Length::Fill)
-            .style(move |_| container::Appearance {
-                background: Some(palette.surface.into()),
-                border: iced::Border {
-                    color: palette.border_subtle,
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                ..Default::default()
-            })
+            .style(box_style(palette.surface, palette.border_subtle, 1.0, 12.0, false))
             .into()
     }
 
@@ -289,20 +311,7 @@ impl SuperPlayerUi {
 
         container(dock_container)
             .width(Length::Fill)
-            .style(move |_| container::Appearance {
-                background: Some(palette.surface_floating.into()),
-                border: iced::Border {
-                    color: palette.border,
-                    width: 1.0,
-                    radius: 16.0.into(),
-                },
-                shadow: iced::Shadow {
-                    color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.35 },
-                    offset: iced::Vector::new(0.0, 4.0),
-                    blur_radius: 16.0,
-                },
-                ..Default::default()
-            })
+            .style(box_style(palette.surface_floating, palette.border, 1.0, 16.0, true))
             .into()
     }
 
@@ -359,15 +368,7 @@ impl SuperPlayerUi {
         container(drawer_content)
             .width(Length::Fixed(320.0))
             .height(Length::Fill)
-            .style(move |_| container::Appearance {
-                background: Some(palette.surface.into()),
-                border: iced::Border {
-                    color: palette.border,
-                    width: 1.0,
-                    radius: 12.0.into(),
-                },
-                ..Default::default()
-            })
+            .style(box_style(palette.surface, palette.border, 1.0, 12.0, false))
             .into()
     }
 }

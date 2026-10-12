@@ -49,7 +49,7 @@ readme = "README.md"
 
 [dependencies]
 # libmpv C API bindings for hardware-accelerated video decoding (NVDEC, VAAPI, MediaCodec)
-libmpv2 = { version = "4.0", features = ["render"] }
+libmpv2 = { version = "6.0", features = ["render"] }
 
 # Modern cross-platform GUI framework (No webview / No JavaScript engine)
 iced = { version = "0.12", default-features = false, features = [
@@ -589,6 +589,18 @@ export default function App() {
   const [cloudBuildStep, setCloudBuildStep] = useState<'idle' | 'running' | 'success'>('idle');
   const [simulatedLogs, setSimulatedLogs] = useState<string[]>([]);
 
+  // Live GitHub Actions Run Tracker State
+  const [githubRepoInput, setGithubRepoInput] = useState('bunnypaw/mediap');
+  const [githubTokenInput, setGithubTokenInput] = useState('');
+  const [githubRunsData, setGithubRunsData] = useState<any[]>([]);
+  const [isFetchingGhRuns, setIsFetchingGhRuns] = useState(false);
+  const [ghFetchError, setGhFetchError] = useState('');
+
+  // Log Auto-Debugger State
+  const [pastedLogText, setPastedLogText] = useState('');
+  const [debugDiagnosis, setDebugDiagnosis] = useState<{ title: string; explanation: string; fix: string } | null>(null);
+  const [isDiagnosingLog, setIsDiagnosingLog] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const currentTrack = DEMO_TRACKS[currentTrackIndex];
 
@@ -727,6 +739,91 @@ export default function App() {
       ]);
       setCloudBuildStep('success');
     }, 3600);
+  };
+
+  // Fetch real-time GitHub Actions workflow runs via GitHub public/authenticated REST API
+  const fetchGitHubWorkflowRuns = async () => {
+    const repo = githubRepoInput.trim();
+    if (!repo || !repo.includes('/')) {
+      setGhFetchError('Please provide repository in format "owner/repo" (e.g. bunnypaw/mediap)');
+      return;
+    }
+    setIsFetchingGhRuns(true);
+    setGhFetchError('');
+    try {
+      const headers: Record<string, string> = {
+        'Accept': 'application/vnd.github.v3+json',
+      };
+      if (githubTokenInput.trim()) {
+        headers['Authorization'] = `token ${githubTokenInput.trim()}`;
+      }
+
+      const res = await fetch(`https://api.github.com/repos/${repo}/actions/runs?per_page=5`, { headers });
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Repository returned 404 Not Found. If the repo is Private, either make it Public in GitHub settings or enter a Personal Access Token below.');
+        } else if (res.status === 401 || res.status === 403) {
+          throw new Error(`Authentication required or rate limited (${res.status}). Provide a GitHub token with "actions:read" scope.`);
+        }
+        throw new Error(`GitHub API error (${res.status}): ${res.statusText}`);
+      }
+      const data = await res.json();
+      setGithubRunsData(data.workflow_runs || []);
+    } catch (err: any) {
+      setGhFetchError(err.message || 'Failed to fetch GitHub runs');
+    } finally {
+      setIsFetchingGhRuns(false);
+    }
+  };
+
+  // Log auto-diagnosis engine
+  const handleAnalyzeBuildLog = (logText: string) => {
+    if (!logText.trim()) return;
+    setIsDiagnosingLog(true);
+    setDebugDiagnosis(null);
+
+    setTimeout(() => {
+      const lower = logText.toLowerCase();
+
+      if (lower.includes('smol_str')) {
+        setDebugDiagnosis({
+          title: 'Invalid Feature Flag: smol_str on iced crate',
+          explanation: 'In iced 0.12, smol_str is not an exposed feature. Available features are: advanced, wgpu, tokio, svg, image.',
+          fix: 'Edit super_player/Cargo.toml: remove "smol_str" from iced features. (Fixed in current code layout).'
+        });
+      } else if (lower.includes('libmpv2') && lower.includes('unable to locate package')) {
+        setDebugDiagnosis({
+          title: 'Apt Package Error: libmpv2 does not exist on Ubuntu',
+          explanation: 'Ubuntu 22.04 provides libmpv-dev (runtime libmpv1). There is no standalone package named libmpv2.',
+          fix: 'In .github/workflows/build.yml, change "libmpv2" to "libmpv-dev". (Fixed in current code layout).'
+        });
+      } else if (lower.includes('cannot open the file as [7z] archive') || lower.includes('is not archive')) {
+        setDebugDiagnosis({
+          title: 'Corrupted SourceForge Download (HTML Redirect)',
+          explanation: 'SourceForge redirected curl/Invoke-WebRequest to an HTML landing page (113 KiB), failing 7z extraction.',
+          fix: 'In .github/workflows/build.yml, use GitHub CLI to fetch directly from shinchiro/mpv-winbuild-cmake releases. (Fixed in current code layout).'
+        });
+      } else if (lower.includes('android_ndk_home = ""') || lower.includes('error detecting ndk version')) {
+        setDebugDiagnosis({
+          title: 'Empty ANDROID_NDK_HOME path in runner',
+          explanation: 'The environment variable was overwritten with an empty string, causing cargo-ndk to fail detecting toolchains.',
+          fix: 'Auto-detect pre-installed NDK at /usr/local/lib/android/sdk/ndk/27.x and export valid path to $GITHUB_ENV. (Fixed in current code layout).'
+        });
+      } else if (lower.includes('cannot find -lmpv') || lower.includes('link: error') || lower.includes('lnk1181')) {
+        setDebugDiagnosis({
+          title: 'Linker Failure: mpv library not found',
+          explanation: 'The linker cannot locate mpv.lib (Windows) or libmpv.so (Linux/Android).',
+          fix: 'Verify build.rs emits cargo:rustc-link-search=native=C:\\mpv-dev (Windows) or passes pkg-config mpv (Linux).'
+        });
+      } else {
+        setDebugDiagnosis({
+          title: 'General Build Issue Detected',
+          explanation: 'Analyzing error pattern. Check the log lines for compiler warnings, missing symbols, or dependency resolution errors.',
+          fix: 'Paste this snippet directly in chat for an immediate codebase patch, or use the Gemini Media Assistant tab for AI diagnosis!'
+        });
+      }
+      setIsDiagnosingLog(false);
+    }, 500);
   };
 
   // Gemini Media Assistant Query
@@ -1431,6 +1528,176 @@ export default function App() {
                 </div>
               </div>
 
+            </div>
+
+            {/* LIVE GITHUB ACTIONS RUN TRACKER */}
+            <div className={`p-6 rounded-2xl border space-y-4 ${
+              isDarkMode ? 'border-slate-800 bg-[#0e121a]' : 'border-slate-200 bg-white'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-base flex items-center gap-2">
+                    <Github className="w-4 h-4 text-orange-500" />
+                    <span>Live GitHub Actions Run Tracker</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Query real-time build status directly from GitHub's Actions API for your repository.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Repository: owner/repo (e.g. bunnypaw/mediap)"
+                  value={githubRepoInput}
+                  onChange={(e) => setGithubRepoInput(e.target.value)}
+                  className={`px-3.5 py-2 text-xs rounded-xl border focus:outline-none focus:border-orange-500 font-mono ${
+                    isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="Personal Access Token (optional / if private)"
+                    value={githubTokenInput}
+                    onChange={(e) => setGithubTokenInput(e.target.value)}
+                    className={`flex-1 px-3.5 py-2 text-xs rounded-xl border focus:outline-none focus:border-orange-500 font-mono ${
+                      isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                    }`}
+                  />
+                  <button
+                    onClick={fetchGitHubWorkflowRuns}
+                    disabled={isFetchingGhRuns}
+                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-orange-600 hover:bg-orange-500 text-white transition disabled:opacity-50 whitespace-nowrap shadow-md shadow-orange-600/20"
+                  >
+                    {isFetchingGhRuns ? 'Checking...' : 'Check Runs'}
+                  </button>
+                </div>
+              </div>
+
+              {ghFetchError && (
+                <div className="p-3 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs text-rose-300 font-mono">
+                  {ghFetchError}
+                </div>
+              )}
+
+              {githubRunsData.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="text-xs font-semibold text-slate-400">Latest Workflow Runs:</div>
+                  <div className="space-y-2">
+                    {githubRunsData.map((run) => (
+                      <div
+                        key={run.id}
+                        className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                          isDarkMode ? 'border-slate-800 bg-slate-950/60' : 'border-slate-200 bg-slate-50'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold ${
+                              run.conclusion === 'success'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : run.conclusion === 'failure'
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            }`}>
+                              {run.conclusion || run.status}
+                            </span>
+                            <span className="font-semibold text-white">{run.name} #{run.run_number}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            Commit: {run.head_commit?.message || run.head_sha?.slice(0, 7)} · Branch: <code className="text-orange-400">{run.head_branch}</code>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={run.html_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg border text-xs text-slate-300 hover:text-white hover:border-slate-600 transition flex items-center gap-1"
+                          >
+                            <span>View on GitHub</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* LIVE LOG AUTO-DEBUGGER */}
+            <div className={`p-6 rounded-2xl border space-y-4 ${
+              isDarkMode ? 'border-slate-800 bg-[#0e121a]' : 'border-slate-200 bg-white'
+            }`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-base flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-orange-500" />
+                    <span>GitHub Actions Log Inspector & Auto-Fix</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Paste any error log snippet from your GitHub Actions runner to instantly diagnose the cause and generate the fix.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const sample = `error: package super_player depends on iced with feature smol_str but iced does not have that feature.\nhelp: available features: advanced, wgpu, tokio, svg, image`;
+                      setPastedLogText(sample);
+                      handleAnalyzeBuildLog(sample);
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded bg-slate-800 text-slate-300 hover:text-white transition"
+                  >
+                    Sample Error
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <textarea
+                  rows={4}
+                  value={pastedLogText}
+                  onChange={(e) => setPastedLogText(e.target.value)}
+                  placeholder="Paste GitHub Actions error log output here (e.g. error[E0432]: unresolved import, linker error, or apt failure)..."
+                  className={`w-full px-3.5 py-2.5 text-xs rounded-xl border focus:outline-none focus:border-orange-500 font-mono ${
+                    isDarkMode ? 'bg-slate-950 border-slate-800 text-slate-200' : 'bg-slate-50 border-slate-200 text-slate-800'
+                  }`}
+                />
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleAnalyzeBuildLog(pastedLogText)}
+                    disabled={isDiagnosingLog || !pastedLogText.trim()}
+                    className="px-4 py-2 text-xs font-semibold rounded-xl bg-orange-600 hover:bg-orange-500 text-white transition disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-orange-600/20"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{isDiagnosingLog ? 'Diagnosing...' : 'Auto-Diagnose Error'}</span>
+                  </button>
+                </div>
+
+                {debugDiagnosis && (
+                  <div className={`p-4 rounded-xl border mt-3 space-y-2 ${
+                    isDarkMode ? 'border-orange-500/30 bg-orange-500/10' : 'border-orange-300 bg-orange-50'
+                  }`}>
+                    <div className="font-bold text-xs text-orange-400 flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                      <span>{debugDiagnosis.title}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      {debugDiagnosis.explanation}
+                    </p>
+                    <div className={`p-2.5 rounded-lg border text-xs font-mono ${
+                      isDarkMode ? 'bg-slate-950/80 border-slate-800 text-emerald-400' : 'bg-white border-slate-200 text-emerald-700'
+                    }`}>
+                      💡 Recommended Fix: {debugDiagnosis.fix}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Cloud Build Pipeline Visualizer & Runner Simulator */}
